@@ -19,8 +19,9 @@ extern crate time;
 extern crate byteorder;
 
 use time::get_time;
-use openssl::crypto::hash::Type::SHA1;
-use openssl::crypto::hmac::hmac;
+use openssl::hash::MessageDigest;
+use openssl::sign::Signer;
+use openssl::pkey::PKey;
 use base32::Alphabet::RFC4648;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 use std::io::Cursor;
@@ -32,10 +33,12 @@ fn decode_secret(secret: &str) -> Option<Vec<u8>> {
 }
 
 /// Calculates the HMAC digest for the given secret and counter.
-fn calc_digest(decoded_secret: &[u8], counter: u64) -> Vec<u8> {
+fn calc_digest(pkey: &PKey, counter: u64) -> Vec<u8> {
     let mut wtr = vec![];
     wtr.write_u64::<BigEndian>(counter).unwrap();
-    hmac(SHA1, decoded_secret, &wtr)
+    let mut signer = Signer::new(MessageDigest::sha1(), pkey).unwrap();
+    signer.update(&wtr).unwrap();
+    signer.finish().unwrap()
 }
 
 /// Encodes the HMAC digest into a 6-digit integer.
@@ -52,7 +55,8 @@ fn encode_digest(digest: &[u8]) -> Option<u32> {
 /// (HOTP) given an RFC4648 base32 encoded secret, and an integer counter.
 pub fn make_hotp(secret: &str, counter: u64) -> Option<u32> {
     decode_secret(secret).and_then(|decoded| {
-        encode_digest(&calc_digest(&decoded, counter))
+        let key = PKey::hmac(&decoded).unwrap();
+        encode_digest(&calc_digest(&key, counter))
     })
 }
 
